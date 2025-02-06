@@ -7,7 +7,7 @@ NodeJS , NPM and React installed on your machine
 ## To run the project locally: 
 * Clone the project
 ```
-$ git clone https://github.com/samah-gaber/vonage-video-chat-application.git
+$ git clone https://github.com/KittPhi/vonage-video-chat-application.git
 ```
 * In the terminal, run: 
 ```
