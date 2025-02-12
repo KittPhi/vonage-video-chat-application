@@ -1,11 +1,17 @@
-.actions-btns {
-    display: flex;
-    justify-content: center;
-    padding: 20px 0;
-    .MuiButtonBase-root {
-        margin: 0 20px;
-    }
+.device-dropdown {
+  height: 50px;
+  overflow-y: auto;
 }
+
+.actions-btns {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  .MuiButtonBase-root {
+    margin: 0 10px;
+  }
+}
+
 .video-container {
   position: relative;
   height: 60vh;
@@ -54,5 +60,19 @@
     position: absolute;
     top: 5%;
     left: 2%;
+  }
+}
+
+.device-settings {
+  padding: 5px;
+  margin: 5px;
+  background-color: #fff;
+  .device-settings__row {
+    margin-bottom: 5px;
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
   }
 }
