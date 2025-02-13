@@ -159,22 +159,21 @@ function VideoChatComponent() {
     };
   }, []);
 
-  // Add the event listener for device changes
-  // useEffect(() => {
-  //   const handleDeviceChangeWithBlur = () =>
-  //     handleDeviceChange(isBlurred, currentDeviceId);
-  //   navigator.mediaDevices.addEventListener(
-  //     "devicechange",
-  //     handleDeviceChangeWithBlur
-  //   );
+  useEffect(() => {
+    const handleDeviceChangeWithBlur = () =>
+      handleDeviceChange(isBlurred, currentDeviceId);
+    navigator.mediaDevices.addEventListener(
+      "devicechange",
+      handleDeviceChangeWithBlur
+    );
 
-  //   return () => {
-  //     navigator.mediaDevices.removeEventListener(
-  //       "devicechange",
-  //       handleDeviceChangeWithBlur
-  //     );
-  //   };
-  // }, [isBlurred, currentDeviceId]);
+    return () => {
+      navigator.mediaDevices.removeEventListener(
+        "devicechange",
+        handleDeviceChangeWithBlur
+      );
+    };
+  }, [isBlurred, currentDeviceId]);
 
   useEffect(() => {
     isInterviewStarted

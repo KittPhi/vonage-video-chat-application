@@ -111,28 +111,44 @@ export function initializeSession(apiKey, sessionId, token) {
 
 export function handleDeviceChange(isBlurred, currentDeviceId) {
   console.log("🔄 Device change detected.");
-  // Re-enumerate devices and update the UI or reinitialize the publisher
-  navigator.mediaDevices.enumerateDevices().then((devices) => {
+  navigator.mediaDevices.enumerateDevices().then(async (devices) => {
     const videoDevices = devices.filter(
       (device) => device.kind === "videoinput"
     );
+    const audioDevices = devices.filter(
+      (device) => device.kind === "audioinput"
+    );
+
     if (videoDevices.length === 0) {
       console.error("No video devices found.");
       // handleStreamStopped();
     } else {
       console.log("Video devices found:", videoDevices);
-      // Check if the current device is still available
-      const currentDeviceAvailable = videoDevices.some(
+      const currentVideoDeviceAvailable = videoDevices.some(
         (device) => device.deviceId === currentDeviceId
       );
-      if (!currentDeviceAvailable) {
+      if (!currentVideoDeviceAvailable) {
         console.log("Current video device is no longer available.");
-        // Reinitialize the publisher with a new device
         if (publisher) {
-          setVideoSource(videoDevices[0].deviceId, isBlurred);
+          await reinitializePublisher(videoDevices[0].deviceId, isBlurred);
         }
       } else {
         console.log("Current video device is still available.");
+      }
+    }
+
+    if (audioDevices.length === 0) {
+      console.error("No audio devices found.");
+    } else {
+      console.log("Audio devices found:", audioDevices);
+      const currentAudioDeviceAvailable = audioDevices.some(
+        (device) => device.deviceId === currentDeviceId
+      );
+      if (!currentAudioDeviceAvailable) {
+        console.log("Current audio device is no longer available.");
+        // Handle audio device change if necessary
+      } else {
+        console.log("Current audio device is still available.");
       }
     }
   });
