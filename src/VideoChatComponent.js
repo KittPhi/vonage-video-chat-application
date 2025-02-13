@@ -21,6 +21,7 @@ import {
 
 import { apiKey, sessionId, token } from "./constants";
 import {
+  handleDeviceChange,
   toggleAudio,
   toggleVideo,
   toggleAudioSubscribtion,
@@ -31,6 +32,8 @@ import {
   toggleBackgroundBlur,
   setVideoSource,
   getPublisher,
+  reapplyBackgroundBlur,
+  reinitializePublisher,
 } from "./VonageVideoAPIIntegrtion";
 import "./VideoChatComponent.scss";
 
@@ -108,6 +111,7 @@ function VideoChatComponent() {
     videoInput: "",
   });
   const [settingsAnchorEl, setSettingsAnchorEl] = useState(null);
+  const [currentDeviceId, setCurrentDeviceId] = useState(null);
 
   const isSubscribed = useSelector(
     (state) => state.videoChat.isStreamSubscribed
@@ -115,6 +119,7 @@ function VideoChatComponent() {
 
   const [isBlurred, setIsBlurred] = useState(false);
 
+  // Initially called, is used to list all available devices (audio inputs, audio outputs, and video inputs).
   useEffect(() => {
     const enumerateDevices = async () => {
       try {
@@ -154,6 +159,23 @@ function VideoChatComponent() {
     };
   }, []);
 
+  // Add the event listener for device changes
+  // useEffect(() => {
+  //   const handleDeviceChangeWithBlur = () =>
+  //     handleDeviceChange(isBlurred, currentDeviceId);
+  //   navigator.mediaDevices.addEventListener(
+  //     "devicechange",
+  //     handleDeviceChangeWithBlur
+  //   );
+
+  //   return () => {
+  //     navigator.mediaDevices.removeEventListener(
+  //       "devicechange",
+  //       handleDeviceChangeWithBlur
+  //     );
+  //   };
+  // }, [isBlurred, currentDeviceId]);
+
   useEffect(() => {
     isInterviewStarted
       ? initializeSession(apiKey, sessionId, token)
@@ -164,29 +186,47 @@ function VideoChatComponent() {
     setIsStreamSubscribed(isSubscribed);
   }, [isSubscribed]);
 
-  const handleDeviceChange = async (type, deviceId) => {
+  const handleSwitchCamera = async (type, deviceId) => {
+    console.log(`🔄 handleSwitchCamera ${type} to: ${deviceId}`);
     setSelectedDevices((prev) => ({ ...prev, [type]: deviceId }));
 
     if (type === "videoInput") {
       const publisher = getPublisher();
       if (!publisher) {
-        console.error("Publisher is not initialized.");
+        console.error("❌ Publisher is not initialized.");
         return;
       }
 
       // ✅ Before switching cameras, check if video was disabled
       const wasVideoEnabled = isVideoEnabled;
 
-      // ✅ Switch the camera source
-      await setVideoSource(deviceId);
+      try {
+        // ✅ Switch the camera source
+        await setVideoSource(deviceId, isBlurred);
 
-      // ✅ After switching, ensure video remains disabled if it was disabled before
-      if (!wasVideoEnabled) {
-        publisher.publishVideo(false);
+        // ✅ Ensure video remains disabled if it was disabled before
+        if (!wasVideoEnabled) {
+          publisher.publishVideo(false);
+        }
+
+        // ✅ Restore the correct UI toggle state
+        setIsVideoEnabled(wasVideoEnabled);
+
+        // ✅ Apply background blur if it is enabled
+        if (isBlurred) {
+          await reapplyBackgroundBlur();
+        }
+      } catch (err) {
+        console.error("❌ Error switching camera:", err);
+
+        // ✅ Pass `isBlurred` to ensure blur is reapplied after reinitialization
+        await reinitializePublisher(deviceId, isBlurred);
       }
 
-      // ✅ Restore the correct UI toggle state (only update if video was enabled before)
-      setIsVideoEnabled(wasVideoEnabled);
+      // Update the current device ID state
+      setCurrentDeviceId(deviceId);
+    } else {
+      console.log(`✅ ${type} switched successfully to: ${deviceId}`);
     }
   };
 
@@ -269,7 +309,7 @@ function VideoChatComponent() {
               </Button>
             </Tooltip>
 
-            <Tooltip title="Switch Camera">
+            {/* <Tooltip title="Switch Camera">
               <Button
                 onClick={cycleCamera}
                 variant="contained"
@@ -278,7 +318,7 @@ function VideoChatComponent() {
               >
                 Switch Camera
               </Button>
-            </Tooltip>
+            </Tooltip> */}
 
             <Tooltip title="Settings">
               <SettingsIcon onClick={handleSettingsClick} className="on-icon" />
@@ -299,7 +339,7 @@ function VideoChatComponent() {
               <DeviceSettings
                 devices={devices}
                 selectedDevices={selectedDevices}
-                onDeviceChange={handleDeviceChange}
+                onDeviceChange={handleSwitchCamera}
               />
             </Popover>
           </div>

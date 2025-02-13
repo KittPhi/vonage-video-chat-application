@@ -5,7 +5,7 @@ import { createVonageMediaProcessor } from "@vonage/ml-transformers";
 
 function handleError(error) {
   if (error) {
-    console.log("handleError:", error.message);
+    console.log("❌ handleError:", error.message);
   }
 }
 
@@ -33,6 +33,7 @@ export function initializeSession(apiKey, sessionId, token) {
   publisher.on({
     mediaStopped: (e) => {
       logPublisherEvent(e);
+      // handleStreamStopped();
     },
     videoDisableWarningLifted: (e) => {
       logPublisherEvent(e);
@@ -63,8 +64,13 @@ export function initializeSession(apiKey, sessionId, token) {
     },
     streamDestroyed: (e) => {
       logPublisherEvent(e);
+      // handleStreamStopped();
     },
   });
+
+  const logSessionEvent = (e) => {
+    console.log({ name: `ℹ️ session [${e.type}]:`, data: e });
+  };
 
   // Subscribing to stream
   session.on("streamCreated", function (event) {
@@ -83,8 +89,8 @@ export function initializeSession(apiKey, sessionId, token) {
   });
 
   // Do some action on destroying the stream
-  session.on("streamDestroyed", function (event) {
-    console.log("The Video chat has ended");
+  session.on("streamDestroyed", function (e) {
+    logSessionEvent(e);
     store.dispatch(handleSubscribtion(false));
   });
 
@@ -97,8 +103,37 @@ export function initializeSession(apiKey, sessionId, token) {
       session.publish(publisher, async (e) => {
         handleError(e);
 
-        console.log("connected!");
+        console.log("✅ connected!");
       });
+    }
+  });
+}
+
+export function handleDeviceChange(isBlurred, currentDeviceId) {
+  console.log("🔄 Device change detected.");
+  // Re-enumerate devices and update the UI or reinitialize the publisher
+  navigator.mediaDevices.enumerateDevices().then((devices) => {
+    const videoDevices = devices.filter(
+      (device) => device.kind === "videoinput"
+    );
+    if (videoDevices.length === 0) {
+      console.error("No video devices found.");
+      // handleStreamStopped();
+    } else {
+      console.log("Video devices found:", videoDevices);
+      // Check if the current device is still available
+      const currentDeviceAvailable = videoDevices.some(
+        (device) => device.deviceId === currentDeviceId
+      );
+      if (!currentDeviceAvailable) {
+        console.log("Current video device is no longer available.");
+        // Reinitialize the publisher with a new device
+        if (publisher) {
+          setVideoSource(videoDevices[0].deviceId, isBlurred);
+        }
+      } else {
+        console.log("Current video device is still available.");
+      }
     }
   });
 }
@@ -107,10 +142,17 @@ export function stopStreaming() {
   session && session.unpublish(publisher);
 }
 
-// The following functions are used in functionlaity customization
 export function toggleVideo(state) {
   console.log("toggleVideo", state);
-  publisher.publishVideo(state);
+  // https://tokbox.com/developer/sdks/js/reference/Publisher.html#publishVideo
+  publisher.publishVideo(state, (err) => {
+    if (err) {
+      // error is undefined if no devices are available or if the user denied access to the camera or media is not supported.
+      console.error("❌ publishVideo change ended in error:", state, err);
+    } else {
+      console.log("✅ publishVideo change successful:", state);
+    }
+  });
 }
 
 export function toggleAudio(state) {
@@ -125,41 +167,134 @@ export function toggleVideoSubscribtion(state) {
   subscriber.subscribeToVideo(state);
 }
 
-let currentDeviceId = null;
-export async function setVideoSource(deviceId) {
+export async function setVideoSource(deviceId, isBlurred) {
   if (!publisher) {
-    console.error("Publisher is not initialized.");
+    console.error("❌ Publisher is not initialized.");
     return;
   }
 
-  console.log(`🔄 Switching camera to: ${deviceId}`);
+  console.log(
+    `🔄 Switching camera to: ${deviceId} with isBlurred: ${isBlurred}`
+  );
   try {
-    if (currentDeviceId === deviceId) {
-      console.log("✅ Camera already in use, no switch needed.");
-      return;
-    }
-
-    currentDeviceId = deviceId; // Update stored device ID
     await publisher.setVideoSource(deviceId);
-
     console.log("✅ Camera switched successfully to:", deviceId);
+
+    // ✅ Delay blur reapplication by 500ms to ensure stability
+    if (isBlurred) {
+      console.log("⏳ Waiting 500ms before reapplying blur...");
+
+      await reapplyBackgroundBlur();
+    }
   } catch (err) {
     console.error("❌ Error switching camera:", err);
+    console.log("🔄 Reinitializing publisher due to camera switch failure...");
+    await reinitializePublisher(deviceId, isBlurred);
   }
 }
 
-export function cycleCamera() {
-  if (publisher) {
-    publisher
-      .cycleVideo()
-      .then((result) => {
-        console.log("Switched to device ID:", result.deviceId);
+export async function reapplyBackgroundBlur() {
+  if (!publisher) {
+    console.error("❌ Publisher is not initialized.");
+    return;
+  }
+
+  if (!OT.hasMediaProcessorSupport()) {
+    console.error("❌ Media processor is NOT supported in this browser.");
+    return;
+  }
+
+  try {
+    console.log("🔄 Reapplying background blur...");
+
+    // ✅ Always destroy the old processor before creating a new one
+    if (processor) {
+      console.log("🔄 Destroying old media processor...");
+      await processor.disable();
+      processor = null;
+    }
+
+    const config = {
+      radius: "High",
+      transformerType: "BackgroundBlur",
+    };
+
+    // ✅ Create a fresh media processor
+    console.log("Creating new media processor...");
+    processor = await createVonageMediaProcessor(config);
+
+    console.log("Setting background options...");
+    await processor.setBackgroundOptions(config);
+
+    console.log("Enabling processor...");
+    await processor.enable();
+
+    console.log("Attempting to set video media processor connector...");
+    await publisher
+      .setVideoMediaProcessorConnector(processor.getConnector())
+      .then(() => {
+        console.log("✅ Background blur re-enabled.");
       })
-      .catch((err) => {
-        console.error("Error switching video device:", err);
+      .catch((error) => {
+        console.error(
+          "❌ Error setting video media processor connector:",
+          error
+        );
       });
-  } else {
-    console.error("Publisher is not initialized.");
+  } catch (error) {
+    console.error("❌ Error reapplying background blur:", error);
+  }
+}
+
+export async function reinitializePublisher(deviceId, isBlurred) {
+  if (!session) {
+    console.error("❌ Session is not initialized.");
+    return;
+  }
+
+  console.log("🔄 Reinitializing publisher...");
+
+  try {
+    // Destroy the existing publisher
+    if (publisher) {
+      publisher.destroy();
+      publisher = null;
+    }
+
+    publisher = OT.initPublisher(
+      "publisher",
+      {
+        insertMode: "append",
+        style: { buttonDisplayMode: "off" },
+        width: "100%",
+        height: "100%",
+        videoSource: deviceId,
+      },
+      async (error) => {
+        if (error) {
+          console.error("❌ Error initializing publisher:", error);
+          return;
+        }
+
+        console.log("✅ Publisher initialized.");
+
+        if (isBlurred) {
+          console.log("🔄 Applying background blur before publishing...");
+          await reapplyBackgroundBlur();
+        }
+
+        session.publish(publisher, (publishError) => {
+          if (publishError) {
+            console.error("❌ Error publishing publisher:", publishError);
+            return;
+          }
+
+          console.log("✅ Publisher reinitialized and published successfully.");
+        });
+      }
+    );
+  } catch (err) {
+    console.error("❌ Error reinitializing publisher:", err);
   }
 }
 
@@ -175,6 +310,7 @@ export async function toggleBackgroundBlur(isBlurred) {
   }
 
   try {
+    console.log("✅ toggleBackgroundBlur:", isBlurred);
     if (isBlurred) {
       // Enable blur
       const config = {
@@ -183,28 +319,60 @@ export async function toggleBackgroundBlur(isBlurred) {
       };
 
       if (!processor) {
+        console.log("Creating new media processor...");
         processor = await createVonageMediaProcessor(config);
       } else {
+        console.log("Setting background options...");
         await processor.setBackgroundOptions(config);
+        console.log("Enabling processor...");
         await processor.enable();
       }
 
-      await publisher.setVideoMediaProcessorConnector(processor.getConnector());
-
-      console.log("Background blur enabled.");
+      console.log("Attempting to set video media processor connector...");
+      await publisher
+        .setVideoMediaProcessorConnector(processor.getConnector())
+        .then(() => {
+          console.log("Background blur enabled.");
+        })
+        .catch((error) => {
+          console.error(
+            "Error setting video media processor connector:",
+            error
+          );
+        });
     } else {
       // ✅ Disable blur properly. The best practice is to explicitly disable the media processor before setting the connector to null or undefined.
       if (processor) {
+        console.log("Disabling processor...");
         await processor.disable(); // ✅ Explicitly disable the processor, without this could cause memory leaks
       }
 
-      await publisher.setVideoMediaProcessorConnector(null); // Remove the connector
-      console.log("Background blur disabled.");
+      console.log("Attempting to remove video media processor connector...");
+      await publisher
+        .setVideoMediaProcessorConnector(null)
+        .then(() => {
+          console.log("Background blur disabled.");
+        })
+        .catch((error) => {
+          console.error("Error disabling background blur:", error);
+        });
     }
   } catch (error) {
     console.error("Error toggling background blur:", error);
   }
 }
+
+// Ensure VideoFrame objects are closed properly
+function closeVideoFrames(frames) {
+  frames.forEach((frame) => {
+    if (frame && typeof frame.close === "function") {
+      frame.close();
+    }
+  });
+}
+
+// Example usage of closeVideoFrames
+// closeVideoFrames([frame1, frame2, frame3]);
 
 export function getPublisher() {
   return publisher;
